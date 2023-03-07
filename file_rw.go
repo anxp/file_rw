@@ -12,6 +12,13 @@ type FileRW struct {
 	fileResource   *os.File
 }
 
+// NewFileRW instantiates new FileRW object. This instance needed only for buffered write:
+//
+// - PrepareBufferedWrite
+// - DoBufferedWrite
+// - CloseBufferedWrite
+//
+// All other functions can be called without object instantiation (statically)
 func NewFileRW() *FileRW {
 	return &FileRW{}
 }
