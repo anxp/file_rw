@@ -28,9 +28,11 @@ func main() {
 	}
 
 	// BUFFERED WRITE EXAMPLE:
-	writer := file_rw.NewFileRW()
+	writer, err := file_rw.NewBufferedWriter("BUFFERED.TXT", "OVERWRITE", false)
 
-	writer.PrepareBufferedWrite("BUFFERED.TXT", "OVERWRITE", false)
+	if err != nil {
+		fmt.Print(err)
+	}
 
 	writer.DoBufferedWrite("Data line 1\n")
 	writer.DoBufferedWrite("Data line 2\n")

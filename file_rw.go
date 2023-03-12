@@ -12,15 +12,34 @@ type FileRW struct {
 	fileResource   *os.File
 }
 
-// NewFileRW instantiates new FileRW object. This instance needed only for buffered write:
+// NewBufferedWriter instantiates new FileRW object.
+// THIS INSTANCE NEEDED ONLY FOR BUFFERED WRITE!
+// Parameters:
 //
-// - PrepareBufferedWrite
-// - DoBufferedWrite
-// - CloseBufferedWrite
+//	path - absolute (starts from /) or relative path to the file to be written to
+//	mode - can have 2 values: "OVERWRITE" or "APPEND"
+//	createPathIfNotExists - if true, an attempt will be made to create all intermediate folders
 //
-// All other functions can be called without object instantiation (statically)
-func NewFileRW() *FileRW {
-	return &FileRW{}
+// Usage:
+//
+//		NewBufferedWriter() - Create new writer
+//		for {
+//	    	DoBufferedWrite() - Write to file. Usually due to big amount of data this is done in a loop
+//		}
+//		CloseBufferedWrite() - Don't forget to close writes! Actually this flushes buffer and closes pointer to file
+//
+// (All other functions can be called without object instantiation (static call))
+func NewBufferedWriter(path string, mode string, createPathIfNotExists bool) (*FileRW, error) {
+	if err := validatePath(path); err != nil {
+		return &FileRW{}, err
+	}
+
+	if f, err := createFileAtPath(path, mode, createPathIfNotExists); err != nil {
+		return &FileRW{}, err
+	} else {
+		w := bufio.NewWriter(f)
+		return &FileRW{bufferedWriter: w, fileResource: f}, nil
+	}
 }
 
 // FilePutContents - writes text string in variable "data" to file in variable "path". Path can be absolute or relative.
@@ -54,27 +73,6 @@ func FileReadContents(path string) (string, error) {
 	} else {
 		return string(fileContentBytes), nil
 	}
-}
-
-func (frw *FileRW) PrepareBufferedWrite(path string, mode string, createPathIfNotExists bool) error {
-	if frw.fileResource != nil && frw.bufferedWriter != nil {
-		return errors.New("file resource already initialized. Close existing file resource before creating new one")
-	}
-
-	if err := validatePath(path); err != nil {
-		return err
-	}
-
-	if f, err := createFileAtPath(path, mode, createPathIfNotExists); err != nil {
-		return err
-	} else {
-		w := bufio.NewWriter(f)
-
-		frw.fileResource = f
-		frw.bufferedWriter = w
-	}
-
-	return nil
 }
 
 func (frw *FileRW) DoBufferedWrite(data string) error {
