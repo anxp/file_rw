@@ -2,7 +2,11 @@ package file_rw
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
+	"fmt"
+	"io"
+	"math"
 	"os"
 	"strings"
 )
@@ -30,7 +34,7 @@ type FileRW struct {
 //
 // (All other functions can be called without object instantiation (static call))
 func NewBufferedWriter(path string, mode string, createPathIfNotExists bool) (*FileRW, error) {
-	if err := validatePath(path); err != nil {
+	if err, _ := validateFilePath(path, false); err != nil {
 		return &FileRW{}, err
 	}
 
@@ -46,7 +50,7 @@ func NewBufferedWriter(path string, mode string, createPathIfNotExists bool) (*F
 // If createPathIfNotExists == true, an attempt will be made to recreate the specified directory structure.
 // Variable "mode" can have 2 values: "OVERWRITE" or "APPEND"
 func FilePutContents(path string, data string, mode string, createPathIfNotExists bool) error {
-	if err := validatePath(path); err != nil {
+	if err, _ := validateFilePath(path, false); err != nil {
 		return err
 	}
 
@@ -64,7 +68,7 @@ func FilePutContents(path string, data string, mode string, createPathIfNotExist
 // FileReadContents - returns content of the file as a string
 // path - full (if start from /) or relative path to a file
 func FileReadContents(path string) (string, error) {
-	if err := validatePath(path); err != nil {
+	if err, _ := validateFilePath(path, true); err != nil {
 		return "", err
 	}
 
@@ -91,16 +95,208 @@ func (frw *FileRW) CloseBufferedWrite() {
 	frw.fileResource = nil
 }
 
-func validatePath(path string) error {
+// FastLoadTxtFile intended for loading huge files.
+// It loads file in several threads from disk and parse it in a slice of strings (\n considered as line endings), effectively allocating memory.
+func FastLoadTxtFile(path string, allowEmptyLines bool) ([]string, error) {
+	rawDataPointer, err := MultithreadedRead(path)
+
+	if err != nil {
+		return []string{}, err
+	}
+
+	return splitToLines(rawDataPointer, allowEmptyLines)
+}
+
+func MultithreadedRead(path string) (*[]byte, error) {
+	var f *os.File
+	var err error
+	var fSize int64
+	var numberOfThreads int
+
+	type filePart struct {
+		partNumber       int
+		startReadingByte int64
+		content          []byte
+		lengthRequested  int64
+		lengthRead       int64
+		error            error
+	}
+
+	if err, fSize = validateFilePath(path, true); err != nil {
+		return nil, err
+	}
+
+	if f, err = os.OpenFile(path, os.O_RDONLY, 0); err != nil {
+		return nil, err
+	}
+
+	defer f.Close()
+
+	if fSize <= 1048576 { // 1MB
+		numberOfThreads = 1
+	} else if fSize <= 134217728 { // 134MB
+		numberOfThreads = 8
+	} else {
+		numberOfThreads = 16
+	}
+
+	// ======================================= MAKE A FILE READING PLAN ================================================
+	chunkSize := int64(math.Ceil(float64(fSize) / float64(numberOfThreads)))
+	lastChunkSize := fSize - chunkSize*(int64(numberOfThreads)-1)
+	fileInChunks := make([]filePart, numberOfThreads)
+	startIndex := int64(0)
+
+	for i := 0; i < numberOfThreads; i++ {
+		fileInChunks[i] = filePart{
+			partNumber:       i,
+			startReadingByte: startIndex,
+			content:          make([]byte, chunkSize),
+			lengthRequested:  chunkSize,
+		}
+
+		// Last part of file. Usually it shorter than chunkSize, but this is not a rule (for ex. 512 / 4 = 128, all 4 chunks are equal!)
+		if i == numberOfThreads-1 {
+			fileInChunks[i] = filePart{
+				partNumber:       i,
+				startReadingByte: startIndex,
+				content:          make([]byte, lastChunkSize),
+				lengthRequested:  lastChunkSize,
+			}
+		}
+
+		startIndex = startIndex + chunkSize
+	}
+	// =================================================================================================================
+
+	// ======================================= PARALLEL READING ========================================================
+	dataChannel := make(chan filePart)
+
+	readChunkFn := func(f *os.File, partToRead filePart, dataChannel chan filePart) {
+
+		// TODO: Investigate how ReadAt can change passed value if it not declared as a pointer?
+		length, err := f.ReadAt(partToRead.content, partToRead.startReadingByte)
+
+		if err != nil && err != io.EOF {
+			partToRead.error = err
+		}
+
+		partToRead.lengthRead = int64(length)
+
+		dataChannel <- partToRead
+	}
+
+	for i := 0; i < numberOfThreads; i++ {
+		go readChunkFn(f, fileInChunks[i], dataChannel)
+	}
+
+	receivedFragments := 0
+	errMessage := ""
+
+	for {
+		fPart := <-dataChannel
+
+		if fPart.error != nil {
+			errMessage += fPart.error.Error() + "; "
+		}
+
+		fileInChunks[fPart.partNumber] = fPart
+
+		receivedFragments++
+		if receivedFragments == numberOfThreads {
+			break
+		}
+	}
+
+	close(dataChannel)
+
+	if errMessage != "" {
+		return nil, errors.New(errMessage)
+	}
+	// =================================================================================================================
+
+	// ======================================= ASSEMBLY THE FILE =======================================================
+	assembledFile := make([]byte, 0, fSize)
+
+	for i := 0; i < numberOfThreads; i++ {
+		assembledFile = append(assembledFile, fileInChunks[i].content...)
+	}
+
+	if int64(len(assembledFile)) != fSize {
+		return nil, fmt.Errorf("file size error: expected [%d], got [%d] bytes\n", fSize, len(assembledFile))
+	}
+	// =================================================================================================================
+
+	return &assembledFile, nil
+}
+
+func splitToLines(data *[]byte, allowEmptyLines bool) ([]string, error) {
+	// Count EOL: https://stackoverflow.com/questions/24562942/golang-how-do-i-determine-the-number-of-lines-in-a-file-efficiently
+
+	// First, we need to check how many lines (ending with \n) are in raw byte slice.
+	// Knowing this allows us to effectively allocate memory for the returned result.
+	lineSep := []byte{'\n'}
+	lineCount := bytes.Count(*data, lineSep) + 1 // For the case when last line does not end with \n, but with EOF (is that possible?)
+
+	fileLines := make([]string, 0, lineCount)
+
+	bytesReader := bytes.NewReader(*data)
+	bufReader := bufio.NewReader(bytesReader)
+
+	for {
+		line, err := bufReader.ReadString('\n')
+
+		if err != nil && err != io.EOF {
+			return []string{}, err
+		}
+
+		trimmed := strings.TrimSpace(line)
+
+		if allowEmptyLines == true || (allowEmptyLines == false && trimmed != "") {
+			fileLines = append(fileLines, trimmed)
+		}
+
+		if err == io.EOF {
+			break
+		}
+	}
+
+	return fileLines, nil
+}
+
+// validatePath can be used for simple or full validation.
+// Simple validation:
+//
+//	Only syntax is checked.
+//	We require path NOT TO BE EMPTY and NOT ENDS WITH "/". This mode used for files to be created (fileShouldExist = false).
+//
+// Full validation:
+//
+//	Checks syntax AND file existence.
+//	This mode used for files to be read, so file should already exist at filesystem (fileShouldExist = true).
+//
+// Returns:
+//
+//	error if path not valid (or file does not exist while it should) | nil
+//	file size in bytes if applicable
+func validateFilePath(path string, fileShouldExist bool) (error, int64) {
 	if strings.HasSuffix(path, "/") {
-		return errors.New("full file path cannot end with \"/\", it should end with file name")
+		return errors.New("full file path cannot end with \"/\", it should end with file name"), 0
 	}
 
 	if path == "" {
-		return errors.New("path cannot be empty")
+		return errors.New("path cannot be empty"), 0
 	}
 
-	return nil
+	if fileShouldExist {
+		// TODO: Recheck if path here can be absolute and/or relative (?)
+		if stat, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			return err, 0
+		} else {
+			return nil, stat.Size()
+		}
+	}
+
+	return nil, 0
 }
 
 func createFileAtPath(path string, mode string, createPathIfNotExists bool) (*os.File, error) {
