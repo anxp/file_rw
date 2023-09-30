@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+var ErrFileEmpty = errors.New("file empty")
+
 type FileRW struct {
 	bufferedWriter *bufio.Writer
 	fileResource   *os.File
@@ -97,14 +99,30 @@ func (frw *FileRW) CloseBufferedWrite() {
 
 // FastLoadTxtFile intended for loading huge files.
 // It loads file in several threads from disk and parse it in a slice of strings (\n considered as line endings), effectively allocating memory.
-func FastLoadTxtFile(path string, allowEmptyLines bool) ([]string, error) {
+// This function can return different errors, but there are two special errors which can be useful in some cases:
+// 		os.ErrNotExist
+// 		file_rw.ErrFileEmpty
+// for example, if file does not exists or is empty, this is not a reason to interrupt program execution, we can generate data and create/fill the file,
+// but if there is another error, like problem with permissions or syntax error in path, we really have a problem.
+// Use errors.Is(err, os.ErrNotExist) or errors.Is(err, file_rw.ErrFileEmpty) for convenient check for special error.
+func FastLoadTxtFile(path string, allowEmptyLines bool, returnErrorOnEmptyFile bool) ([]string, error) {
 	rawDataPointer, err := MultithreadedRead(path)
 
 	if err != nil {
 		return []string{}, err
 	}
 
-	return splitToLines(rawDataPointer, allowEmptyLines)
+	lines, err := splitToLines(rawDataPointer, allowEmptyLines)
+
+	if err != nil {
+		return []string{}, err
+	}
+
+	if returnErrorOnEmptyFile && len(lines) == 0 {
+		return []string{}, ErrFileEmpty
+	}
+
+	return lines, nil
 }
 
 func MultithreadedRead(path string) (*[]byte, error) {
