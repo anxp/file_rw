@@ -100,9 +100,11 @@ func (frw *FileRW) CloseBufferedWrite() {
 // FastLoadTxtFile intended for loading huge files.
 // It loads file in several threads from disk and parse it in a slice of strings (\n considered as line endings), effectively allocating memory.
 // This function can return different errors, but there are two special errors which can be useful in some cases:
-// 		os.ErrNotExist
-// 		file_rw.ErrFileEmpty
-// for example, if file does not exists or is empty, this is not a reason to interrupt program execution, we can generate data and create/fill the file,
+//
+//	os.ErrNotExist
+//	file_rw.ErrFileEmpty
+//
+// for example, if file does not exist or is empty, this is not a reason to interrupt program execution, we can generate data and create/fill the file,
 // but if there is another error, like problem with permissions or syntax error in path, we really have a problem.
 // Use errors.Is(err, os.ErrNotExist) or errors.Is(err, file_rw.ErrFileEmpty) for convenient check for special error.
 func FastLoadTxtFile(path string, allowEmptyLines bool, returnErrorOnEmptyFile bool) ([]string, error) {
@@ -247,6 +249,69 @@ func MultithreadedRead(path string) (*[]byte, error) {
 	return &assembledFile, nil
 }
 
+// InsertFromByte inserts new data in file starting from specified byte. All existing data moved forward for len(insertion) bytes.
+// This function is effective when writing/inserting a piece of data at the end of file, when a small amount of data is written to disk.
+// When inserting at the beginning of a file, this function will not provide any benefit since it will actually overwrite (almost) the entire file.
+func InsertFromByte(path string, fromByte int64, insertion *[]byte) error {
+	var size int64
+	var err error
+	var f *os.File
+	var remainder []byte
+
+	if err, size = validateFilePath(path, true); err != nil {
+		return err
+	}
+
+	// if fromByte == size => it works exactly as APPEND (nothing to overwrite)
+	if fromByte > size {
+		return errors.New("incorrect write, the gap is not allowed")
+	}
+
+	// ==================== PART ONE: READ & REMEMBER SECOND PART ======================================================
+	if f, err = os.OpenFile(path, os.O_RDONLY, 0644); err != nil {
+		return err
+	}
+
+	if _, err = f.Seek(fromByte, 0); err != nil {
+		return err
+	}
+
+	if remainder, err = io.ReadAll(f); err != nil {
+		return err
+	}
+
+	if err = f.Close(); err != nil {
+		return err
+	}
+	// =================================================================================================================
+
+	// ==================== PART TWO: WRITE INSERTION ==================================================================
+	if f, err = os.OpenFile(path, os.O_WRONLY, 0644); err != nil {
+		return err
+	}
+
+	if _, err = f.Seek(fromByte, 0); err != nil {
+		return err
+	}
+
+	if _, err = f.Write(*insertion); err != nil {
+		return err
+	}
+	// =================================================================================================================
+
+	// ==================== PART THREE: WRITE REMAINDER ================================================================
+	if _, err = f.Write(remainder); err != nil {
+		return err
+	}
+
+	if err = f.Close(); err != nil {
+		return err
+	}
+	// =================================================================================================================
+
+	return nil
+}
+
 func splitToLines(data *[]byte, allowEmptyLines bool) ([]string, error) {
 	// Count EOL: https://stackoverflow.com/questions/24562942/golang-how-do-i-determine-the-number-of-lines-in-a-file-efficiently
 
@@ -306,7 +371,7 @@ func validateFilePath(path string, fileShouldExist bool) (error, int64) {
 	}
 
 	if fileShouldExist {
-		// TODO: Recheck if path here can be absolute and/or relative (?)
+		// "path" in os.Stat(path) can be either absolute or relative
 		if stat, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			return err, 0
 		} else {
