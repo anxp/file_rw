@@ -18,6 +18,13 @@ type FileRW struct {
 	fileResource   *os.File
 }
 
+type WMode int8
+
+const (
+	WMODE_APPEND WMode = iota + 1
+	WMODE_OVERWRITE
+)
+
 // NewBufferedWriter instantiates new FileRW object.
 // THIS INSTANCE NEEDED ONLY FOR BUFFERED WRITE!
 // Parameters:
@@ -35,7 +42,7 @@ type FileRW struct {
 //		CloseBufferedWrite() - Don't forget to close writes! Actually this flushes buffer and closes pointer to file
 //
 // (All other functions can be called without object instantiation (static call))
-func NewBufferedWriter(path string, mode string, createPathIfNotExists bool) (*FileRW, error) {
+func NewBufferedWriter(path string, mode WMode, createPathIfNotExists bool) (*FileRW, error) {
 	if err, _ := validateFilePath(path, false); err != nil {
 		return &FileRW{}, err
 	}
@@ -48,17 +55,16 @@ func NewBufferedWriter(path string, mode string, createPathIfNotExists bool) (*F
 	}
 }
 
-// FilePutContents - writes text string in variable "data" to file in variable "path". Path can be absolute or relative.
+// FileWriteText - writes text string in variable "data" to file in variable "path". Path can be absolute or relative.
 // If createPathIfNotExists == true, an attempt will be made to recreate the specified directory structure.
-// Variable "mode" can have 2 values: "OVERWRITE" or "APPEND"
-func FilePutContents(path string, data string, mode string, createPathIfNotExists bool) error {
+func FileWriteText(path string, data string, mode WMode, createPathIfNotExists bool) error {
 	if err, _ := validateFilePath(path, false); err != nil {
 		return err
 	}
 
 	if f, err := createFileAtPath(path, mode, createPathIfNotExists); err != nil {
 		return err
-	} else if _, err := f.WriteString(data); err != nil {
+	} else if _, err = f.WriteString(data); err != nil {
 		f.Close()
 		return err
 	} else {
@@ -67,9 +73,9 @@ func FilePutContents(path string, data string, mode string, createPathIfNotExist
 	}
 }
 
-// FileReadContents - returns content of the file as a string
+// FileReadText - returns content of the file as a string
 // path - full (if start from /) or relative path to a file
-func FileReadContents(path string) (string, error) {
+func FileReadText(path string) (string, error) {
 	if err, _ := validateFilePath(path, true); err != nil {
 		return "", err
 	}
@@ -249,10 +255,34 @@ func MultithreadedRead(path string) (*[]byte, error) {
 	return &assembledFile, nil
 }
 
-// InsertFromByte inserts new data in file starting from specified byte. All existing data moved forward for len(insertion) bytes.
+// FileAppendBytes appends bytes slice to the end of the file
+func FileAppendBytes(path string, data *[]byte) error {
+	var err error
+	var f *os.File
+
+	if err, _ = validateFilePath(path, true); err != nil {
+		return err
+	}
+
+	if f, err = os.OpenFile(path, os.O_WRONLY, 0644); err != nil {
+		return err
+	}
+
+	if _, err = f.Write(*data); err != nil {
+		return err
+	}
+
+	if err = f.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// FileInsertBytes inserts new data in file starting from specified byte. All existing data moved forward for len(insertion) bytes.
 // This function is effective when writing/inserting a piece of data at the end of file, when a small amount of data is written to disk.
 // When inserting at the beginning of a file, this function will not provide any benefit since it will actually overwrite (almost) the entire file.
-func InsertFromByte(path string, fromByte int64, insertion *[]byte) error {
+func FileInsertBytes(path string, fromByte int64, insertion *[]byte) error {
 	var size int64
 	var err error
 	var f *os.File
@@ -382,7 +412,7 @@ func validateFilePath(path string, fileShouldExist bool) (error, int64) {
 	return nil, 0
 }
 
-func createFileAtPath(path string, mode string, createPathIfNotExists bool) (*os.File, error) {
+func createFileAtPath(path string, mode WMode, createPathIfNotExists bool) (*os.File, error) {
 	prefix := ""
 	fullPath := ""
 
@@ -417,12 +447,12 @@ func createFileAtPath(path string, mode string, createPathIfNotExists bool) (*os
 
 	fileMode := 0
 
-	if mode == "APPEND" {
+	if mode == WMODE_APPEND {
 		fileMode = os.O_APPEND | os.O_CREATE | os.O_WRONLY
-	} else if mode == "OVERWRITE" {
+	} else if mode == WMODE_OVERWRITE {
 		fileMode = os.O_RDWR | os.O_CREATE | os.O_TRUNC
 	} else {
-		return nil, errors.New("not supported mode: " + mode + ". Only APPEND and OVERWRITE are supported")
+		return nil, errors.New("not supported write mode")
 	}
 
 	return os.OpenFile(fullPath, fileMode, 0644)
