@@ -260,11 +260,11 @@ func FileAppendBytes(path string, data *[]byte) error {
 	var err error
 	var f *os.File
 
-	if err, _ = validateFilePath(path, true); err != nil {
+	if err, _ = validateFilePath(path, false); err != nil {
 		return err
 	}
 
-	if f, err = os.OpenFile(path, os.O_WRONLY, 0644); err != nil {
+	if f, err = createFileAtPath(path, WMODE_APPEND, true); err != nil {
 		return err
 	}
 

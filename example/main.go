@@ -44,7 +44,22 @@ func main() {
 	writer.CloseBufferedWrite()
 	// =================================================================================================================
 
-	// ==================== INSERT Example: ============================================================================
+	// ==================== APPEND Bytes Example: ======================================================================
+	testData1 := []byte("Hello world!\n")
+	testData2 := []byte("Data to append line 2\n")
+	testData3 := []byte("Data to append line 3\n")
+	testData4 := []byte("Data to append line 4\n")
+
+	err = file_rw.FileAppendBytes("AppendBytesTest.txt", &testData1)
+	if err != nil {
+		fmt.Println(err)
+	}
+	file_rw.FileAppendBytes("AppendBytesTest.txt", &testData2)
+	file_rw.FileAppendBytes("AppendBytesTest.txt", &testData3)
+	file_rw.FileAppendBytes("AppendBytesTest.txt", &testData4)
+	//==================================================================================================================
+
+	// ==================== INSERT Bytes Example: ======================================================================
 	testData := "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n"
 	insertion := []byte("This piece of text\nshould be inserted\nbetween 2nd and 3rd lines\n")
 
