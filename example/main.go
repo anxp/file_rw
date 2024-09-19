@@ -50,13 +50,13 @@ func main() {
 	testData3 := []byte("Data to append line 3\n")
 	testData4 := []byte("Data to append line 4\n")
 
-	err = file_rw.FileAppendBytes("AppendBytesTest.txt", &testData1)
+	err = file_rw.FileWriteBytes("AppendBytesTest.txt", &testData1, file_rw.WMODE_APPEND, true)
 	if err != nil {
 		fmt.Println(err)
 	}
-	file_rw.FileAppendBytes("AppendBytesTest.txt", &testData2)
-	file_rw.FileAppendBytes("AppendBytesTest.txt", &testData3)
-	file_rw.FileAppendBytes("AppendBytesTest.txt", &testData4)
+	file_rw.FileWriteBytes("AppendBytesTest.txt", &testData2, file_rw.WMODE_APPEND, true)
+	file_rw.FileWriteBytes("AppendBytesTest.txt", &testData3, file_rw.WMODE_APPEND, true)
+	file_rw.FileWriteBytes("AppendBytesTest.txt", &testData4, file_rw.WMODE_APPEND, true)
 	//==================================================================================================================
 
 	// ==================== INSERT Bytes Example: ======================================================================

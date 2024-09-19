@@ -255,8 +255,8 @@ func MultithreadedRead(path string) (*[]byte, error) {
 	return &assembledFile, nil
 }
 
-// FileAppendBytes appends bytes slice to the end of the file
-func FileAppendBytes(path string, data *[]byte) error {
+// FileWriteBytes put bytes slice to the file - either overwriting existing file or appending to the end of it.
+func FileWriteBytes(path string, data *[]byte, mode WMode, createPathIfNotExists bool) error {
 	var err error
 	var f *os.File
 
@@ -264,7 +264,7 @@ func FileAppendBytes(path string, data *[]byte) error {
 		return err
 	}
 
-	if f, err = createFileAtPath(path, WMODE_APPEND, true); err != nil {
+	if f, err = createFileAtPath(path, mode, createPathIfNotExists); err != nil {
 		return err
 	}
 
