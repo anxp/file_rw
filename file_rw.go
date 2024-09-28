@@ -75,16 +75,18 @@ func FileWriteText(path string, data string, mode WMode, createPathIfNotExists b
 
 // FileReadText - returns content of the file as a string
 // path - full (if start from /) or relative path to a file
+//
+// Consider: Sometimes more effective to use FileReadBytes because it returns pointer
+// 	While slices are indeed passed by value, this value is a reference to the underlying array.
+//	This means that modifications to the slice's contents within a function will be visible outside the function, even without using pointers.
 func FileReadText(path string) (string, error) {
-	if err, _ := validateFilePath(path, true); err != nil {
+	fileContent, err := FileReadBytes(path)
+
+	if err != nil {
 		return "", err
 	}
 
-	if fileContentBytes, err := os.ReadFile(path); err != nil {
-		return "", err
-	} else {
-		return string(fileContentBytes), nil
-	}
+	return string(fileContent), err
 }
 
 func (frw *FileRW) DoBufferedWrite(data string) error {
@@ -253,6 +255,22 @@ func MultithreadedRead(path string) (*[]byte, error) {
 	// =================================================================================================================
 
 	return &assembledFile, nil
+}
+
+// FileReadBytes simply reads whole file (in one thread) and returns content as []byte (actually, pointer to slice of bytes)
+// path - full (if start from /) or relative path to a file
+func FileReadBytes(path string) ([]byte, error) {
+	err, _ := validateFilePath(path, true)
+	if err != nil {
+		return nil, err
+	}
+
+	fileContentBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return fileContentBytes, nil
 }
 
 // FileWriteBytes put bytes slice to the file - either overwriting existing file or appending to the end of it.
