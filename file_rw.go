@@ -279,6 +279,42 @@ func FileWriteBytes(path string, data *[]byte, mode WMode, createPathIfNotExists
 	return nil
 }
 
+// FileOverwriteBytes overwrites data in file starting from specified byte.
+func FileOverwriteBytes(path string, fromByte int64, replacement *[]byte) error {
+	var size int64
+	var err error
+	var f *os.File
+
+	if err, size = validateFilePath(path, true); err != nil {
+		return err
+	}
+
+	// if fromByte == size => it works exactly as APPEND (nothing to overwrite)
+	if fromByte > size {
+		return errors.New("incorrect write, the gap is not allowed")
+	}
+
+	// ==================== OVERWRITE DATA =============================================================================
+	if f, err = os.OpenFile(path, os.O_WRONLY, 0644); err != nil {
+		return err
+	}
+
+	if _, err = f.Seek(fromByte, 0); err != nil {
+		return err
+	}
+
+	if _, err = f.Write(*replacement); err != nil {
+		return err
+	}
+
+	if err = f.Close(); err != nil {
+		return err
+	}
+	// =================================================================================================================
+
+	return nil
+}
+
 // FileInsertBytes inserts new data in file starting from specified byte. All existing data moved forward for len(insertion) bytes.
 // This function is effective when writing/inserting a piece of data at the end of file, when a small amount of data is written to disk.
 // When inserting at the beginning of a file, this function will not provide any benefit since it will actually overwrite (almost) the entire file.
