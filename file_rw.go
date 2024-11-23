@@ -273,6 +273,37 @@ func FileReadBytes(path string) ([]byte, error) {
 	return fileContentBytes, nil
 }
 
+// FileReadBytesFrom reads "numBytes" bytes from "fromByte" byte from the beginning of the file.
+func FileReadBytesFrom(path string, fromByte int64, numBytes int) ([]byte, error) {
+	var f *os.File
+	var err error
+	var length int
+
+	err, _ = validateFilePath(path, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if f, err = os.OpenFile(path, os.O_RDONLY, 0); err != nil {
+		return nil, err
+	}
+
+	defer f.Close()
+
+	content := make([]byte, numBytes, numBytes)
+	length, err = f.ReadAt(content, fromByte)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(content) != length {
+		return nil, fmt.Errorf("incorrect read (this error should never appear)")
+	}
+
+	return content, nil
+}
+
 // FileWriteBytes put bytes slice to the file - either overwriting existing file or appending to the end of it.
 func FileWriteBytes(path string, data *[]byte, mode WMode, createPathIfNotExists bool) error {
 	var err error
